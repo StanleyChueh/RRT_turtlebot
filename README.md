@@ -1,1 +1,2 @@
-# Turtlebot_Path_Follower
+# Robot Path Planning Following
+## RRT vs. A* vs. Hybrid A*
