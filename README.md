@@ -17,4 +17,5 @@ https://youtu.be/L-HktZQIf9k?si=_8rFrMYtMGyOo5ih
 https://youtu.be/L-HktZQIf9k?si=_8rFrMYtMGyOo5ih
 
 ## On going
-Add local planner with costmap for enhancing dynamic replanning ability...
+1.Add local planner with costmap for enhancing dynamic replanning ability...
+2.Path smoothing enhancement
