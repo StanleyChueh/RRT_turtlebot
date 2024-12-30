@@ -1,4 +1,4 @@
-# Robot Path Planning Following
+# Robot Navigation
 ## RRT vs. A* vs. Hybrid A*
 
 ### Project Structure
