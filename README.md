@@ -1,8 +1,9 @@
 # Robot Navigation
-## RRT vs. A* vs. Hybrid A*
 
-### Project Structure
+## Project Structure
 <img width="3620" alt="Welcome to FigJam (3)" src="https://github.com/user-attachments/assets/62b9a3ba-678e-4d33-8a34-2576feaca037" />
+
+### RRT vs. A* vs. Hybrid A*
 
 #### RRT with DWA controller
 ![image](https://github.com/user-attachments/assets/18b75684-7232-40a7-9280-00fcd945fdf3)
