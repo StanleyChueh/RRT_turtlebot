@@ -5,7 +5,7 @@
 
 ### RRT vs. A* vs. Hybrid A*
 
-#### RRT with DWA controller
+#### RRT
 ![image](https://github.com/user-attachments/assets/18b75684-7232-40a7-9280-00fcd945fdf3)
 
 https://youtu.be/Bxc5hF18Tw8
