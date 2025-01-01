@@ -17,6 +17,9 @@ https://youtu.be/L-HktZQIf9k?si=_8rFrMYtMGyOo5ih
 ![image](https://github.com/user-attachments/assets/a37d7aaa-833d-403e-b288-42e22418180c)
 https://youtu.be/L-HktZQIf9k?si=_8rFrMYtMGyOo5ih
 
+#### Dynamic Path Planning
+![Untitled ‑ Made with FlexClip (39)](https://github.com/user-attachments/assets/e2df8c25-97d0-4f78-95a6-8c3409bea333)
+
 ## On going
 1.Add local planner with costmap for enhancing dynamic replanning ability...
 
