@@ -29,7 +29,7 @@ class HybridPlannerNode(Node):
         self.grid_resolution = 0.2  # Resolution of the grid
         self.goal_threshold = 0.05  # Minimum distance to consider the goal reached (in meters)
         self.robot_radius = 0.12  # Robot radius
-        self.map_bounds = (-5, 5, -5, 5)  # Min x, max x, min y, max y
+        self.map_bounds = (-15, 15, -15, 15)  # Min x, max x, min y, max y
         self.local_obstacles = []
         self.current_goal = None
         self.path = []
@@ -40,9 +40,8 @@ class HybridPlannerNode(Node):
         self.max_angular_speed = 1.0  # Maximum angular speed
         
         self.previous_angle_error = 0.0
-        self.local_path_marker_pub = self.create_publisher(Marker, 'local_path', 10)
-        self.lookahead_marker_pub = self.create_publisher(Marker, 'lookahead_point', 10)
-        self.curvature_marker_pub = self.create_publisher(Marker, 'curvature_arc', 10)
+        self.replan_cooldown = 3.0  # Minimum time between replanning (in seconds)
+        self.last_replan_time = self.get_clock().now()  # Initialize last replan time
 
         self.timer = self.create_timer(0.1, self.control_loop)
 
@@ -115,6 +114,10 @@ class HybridPlannerNode(Node):
 
                 # Increment the angle for the next scan range
                 angle += msg.angle_increment
+
+            # Visualize the inflation zone around obstacles
+            self.visualize_inflation_zone()
+
         except tf2_ros.LookupException as e:
             self.get_logger().warn(f"TF Lookup Error (scan_callback): {e}")
         except tf2_ros.ExtrapolationException as e:
@@ -176,6 +179,20 @@ class HybridPlannerNode(Node):
         curvature = 4 * np.abs(np.cross(p2 - p1, p3 - p1)) / (a * b * c)
         return curvature
 
+    def is_path_blocked(self):
+        """
+        Check if any obstacle intersects the planned path.
+        """
+        if not self.path:
+            return False  # No path to block
+
+        for waypoint in self.path[:5]:  # Check the next 5 waypoints or adjust as needed
+            for obstacle in self.local_obstacles:
+                distance = np.linalg.norm(np.array(waypoint) - np.array(obstacle))
+                if distance < self.robot_radius + 0.1:  # Include a safety margin
+                    return True
+        return False
+
     
     def get_neighbors(self, node):
         neighbors = []
@@ -212,16 +229,43 @@ class HybridPlannerNode(Node):
             return
 
         self.get_logger().info(f"Planning path from start: {start} to goal: {goal}")
-        path = self.hybrid_a_star(start, goal)
 
-        if path:
-            smoothed_path = self.smooth_path(path)
-            self.path = self.segment_path(smoothed_path, segment_distance=0.1)  # Reduce segment distance
-            self.get_logger().info(f"Global path found with {len(self.path)} waypoints.")
-            self.visualize_path(self.path)  # Visualize the segmented path
-        else:
-            self.get_logger().warn("No path found!")
+        expansion_factor = 1.5  # Factor by which to expand map bounds
+        resolution_decrement = 0.05  # Amount to decrease grid resolution in each attempt
 
+        original_bounds = self.map_bounds
+        original_resolution = self.grid_resolution
+
+        attempt = 0
+        while True:  # Infinite replanning
+            self.get_logger().info(f"Replanning attempt {attempt + 1}...")
+            self.map_bounds = (
+                original_bounds[0] * (expansion_factor ** attempt),
+                original_bounds[1] * (expansion_factor ** attempt),
+                original_bounds[2] * (expansion_factor ** attempt),
+                original_bounds[3] * (expansion_factor ** attempt),
+            )
+            self.grid_resolution = max(0.05, original_resolution - attempt * resolution_decrement)
+
+            path = self.hybrid_a_star(start, goal)
+
+            if path:
+                smoothed_path = self.smooth_path(path)
+                self.path = self.segment_path(smoothed_path, segment_distance=0.1)
+                self.get_logger().info(f"Global path found with {len(self.path)} waypoints.")
+                self.visualize_path(self.path)
+                self.map_bounds = original_bounds  # Restore original bounds
+                self.grid_resolution = original_resolution  # Restore original resolution
+                return
+
+            attempt += 1
+
+            # Optional: Add a termination condition if the robot should stop after some retries
+            if attempt >= 10:  # Stop after 10 attempts
+                self.get_logger().warn("Failed to find a global path after 10 attempts.")
+                self.map_bounds = original_bounds  # Restore original bounds
+                self.grid_resolution = original_resolution  # Restore original resolution
+                return
 
 
     def is_collision_free(self, point):
@@ -293,6 +337,17 @@ class HybridPlannerNode(Node):
                 self.current_goal = None  # Clear the goal
                 self.path = []  # Clear the path
                 return
+            
+        # Replan if the path is blocked and the cooldown has passed
+        if self.is_path_blocked():
+            now = self.get_clock().now()
+            time_since_last_replan = (now - self.last_replan_time).nanoseconds * 1e-9
+            if time_since_last_replan >= self.replan_cooldown:
+                self.get_logger().info("Path blocked! Replanning...")
+                self.plan_global_path()
+                self.last_replan_time = now  # Update the last replan time
+            else:
+                self.get_logger().info(f"Replanning on cooldown ({time_since_last_replan:.2f}s elapsed).")
 
         # Find the nearest waypoint and remove it if reached
         while self.path and np.linalg.norm(current_position - np.array(self.path[0])) < self.lookahead_distance:
@@ -554,6 +609,42 @@ class HybridPlannerNode(Node):
             marker.points.append(p)
 
         self.curvature_marker_pub.publish(marker)
+
+    def visualize_inflation_zone(self):
+        """Visualize the inflation zone around obstacles using MarkerArray."""
+        marker_array = MarkerArray()
+
+        inflation_radius = self.robot_radius + 0.1  # Robot radius + safety margin
+
+        for i, obstacle in enumerate(self.local_obstacles):
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "inflation_zone"
+            marker.id = i  # Unique ID for each marker
+            marker.type = Marker.CYLINDER
+            marker.action = Marker.ADD
+            marker.pose.position.x = float(obstacle[0])  # X coordinate of obstacle
+            marker.pose.position.y = float(obstacle[1])  # Y coordinate of obstacle
+            marker.pose.position.z = 0.0  # Assume flat ground
+            marker.scale.x = 2 * inflation_radius  # Diameter of the circle
+            marker.scale.y = 2 * inflation_radius  # Diameter of the circle
+            marker.scale.z = 0.1  # Small height to make it a flat cylinder
+            marker.color.r = 1.0  # Red for the inflation zone
+            marker.color.g = 0.0
+            marker.color.b = 0.0
+            marker.color.a = 0.5  # Semi-transparent
+            marker_array.markers.append(marker)
+
+        # Clear unused markers in RViz by setting unused markers to DELETE
+        for i in range(len(self.local_obstacles), len(marker_array.markers)):
+            marker = Marker()
+            marker.action = Marker.DELETE
+            marker.id = i
+            marker_array.markers.append(marker)
+
+            self.inflation_marker_pub.publish(marker_array)
+
 
 
 
