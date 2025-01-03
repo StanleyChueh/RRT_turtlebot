@@ -2,8 +2,25 @@
 ## Project Structure
 <img width="3620" alt="Welcome to FigJam (3)" src="https://github.com/user-attachments/assets/62b9a3ba-678e-4d33-8a34-2576feaca037" />
 
+## Pre-requirement
+1. ROS2 Humble
+2. Gazebo
+3. Turtlebot
+## Usage
+### Terminal1 💻
+``` 
+ros2 launch turtlebot3_gazebo turtlebot3_dqn_stage4.launch.py 
+```
+### Terminal2 💻
+```
+ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true
+```
+### Terminal3 💻
+```
+Run the code!!(RRT,A*,Hybrid A*)
+```
 ### RRT vs. A* vs. Hybrid A*
-#### RRT with DWA controller
+#### RRT 
 ![image](https://github.com/user-attachments/assets/18b75684-7232-40a7-9280-00fcd945fdf3)
 
 https://youtu.be/Bxc5hF18Tw8
