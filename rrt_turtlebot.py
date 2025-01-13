@@ -33,6 +33,13 @@ class HybridPlannerNode(Node):
         self.timer = self.create_timer(0.1, self.control_loop)
         self.obstacle_marker_pub = self.create_publisher(MarkerArray, 'obstacle_markers', 10)
 
+        # PID Parameters
+        self.kp_linear = 1.0
+        self.kp_angular = 1.5
+        self.linear_velocity_max = 0.2  # m/s
+        self.angular_velocity_max = 1.0  # rad/s
+
+
     def get_current_position(self):
         try:
             transform = self.tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time(), timeout=rclpy.time.Duration(seconds=0.5))
@@ -56,7 +63,7 @@ class HybridPlannerNode(Node):
 
         try:
             # Get the transformation from base_link to map
-            transform = self.tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time(), timeout=rclpy.time.Duration(seconds=0.5))
+            transform = self.tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time(), timeout=rclpy.time.Duration(seconds=1.0))
             translation = np.array([transform.transform.translation.x, transform.transform.translation.y])
             yaw = self.get_yaw_from_transform(transform)
 
@@ -192,31 +199,32 @@ class HybridPlannerNode(Node):
         return path[::-1]
 
 
-    def follow_path_with_dwa(self):
-        """Dynamic Window Approach for local navigation."""
+    def follow_path_with_pid(self):
+        """PID-based local navigation to follow the path."""
         if not self.path or not self.path_ready:
-            self.tree = []
-            self.path_ready = False
+            self.get_logger().warn("Path not ready or empty.")
             return
 
         current_position = self.get_current_position()
         if current_position is None:
             return
 
+        # Get the next waypoint
         next_waypoint = self.path[0]
         distance = np.linalg.norm(next_waypoint - current_position)
 
+        # Check if we reached the waypoint
         if distance < 0.2:  # Waypoint tolerance
             self.path.pop(0)
             if not self.path:
                 self.get_logger().info("Goal reached!")
                 self.cmd_vel_pub.publish(Twist())  # Stop the robot
-                self.tree = []  # Clear tree
-                self.path = []  # Clear path
-                self.path_ready = False  # Mark the planner as ready for a new task
+                self.tree = []  # Clear the tree
+                self.path = []  # Clear the path
+                self.path_ready = False
             return
 
-        # Calculate heading error
+        # Compute linear and angular errors
         try:
             transform = self.tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time())
             yaw = self.get_yaw_from_transform(transform)
@@ -225,18 +233,15 @@ class HybridPlannerNode(Node):
             return
 
         angle_to_goal = np.arctan2(next_waypoint[1] - current_position[1], next_waypoint[0] - current_position[0])
-        angle_diff = self.normalize_angle(angle_to_goal - yaw)
+        angle_error = self.normalize_angle(angle_to_goal - yaw)
 
-        # Compute DWA-based velocities
+        # PID control for velocities
         twist = Twist()
-        if abs(angle_diff) > 0.1:
-            twist.angular.z = np.clip(1.5 * angle_diff, -1.0, 1.0)
-            twist.linear.x = 0.0
-        else:
-            twist.linear.x = min(0.1, distance)
-            twist.angular.z = np.clip(1.0 * angle_diff, -1.0, 1.0)
+        twist.linear.x = min(self.kp_linear * distance, self.linear_velocity_max)
+        twist.angular.z = np.clip(self.kp_angular * angle_error, -self.angular_velocity_max, self.angular_velocity_max)
 
         self.cmd_vel_pub.publish(twist)
+
 
     def normalize_angle(self, angle):
         return (angle + np.pi) % (2 * np.pi) - np.pi
@@ -249,7 +254,13 @@ class HybridPlannerNode(Node):
 
     def control_loop(self):
         if self.path_ready:
-            self.follow_path_with_dwa()
+            self.follow_path_with_pid()
+
+        if self.is_obstacle_nearby():
+            self.get_logger().warn("Obstacle too close! Stopping...")
+            self.cmd_vel_pub.publish(Twist())  # Stop the robot
+            self.plan_global_path()  # Trigger a replan
+
 
     def create_marker(self, position, marker_id, namespace, color):
         """Create a marker for a tree node."""
